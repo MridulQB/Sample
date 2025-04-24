@@ -1,5 +1,5 @@
 import { AuthClient } from "@dfinity/auth-client";
-import { backend as backendActor } from "./backend";
+import { backend as backendActor } from "../declarations/backend/index.js";
 
 // Use local Internet Identity for development, mainnet for production
 const IDENTITY_PROVIDER = "https://identity.ic0.app";
@@ -73,7 +73,7 @@ function showLoginButton() {
 // Load current user data
 async function loadCurrentUser() {
   try {
-    const users = await backend.getUsers();
+    const users = await backendActor.getUsers();
     const principal = authClient?.getIdentity().getPrincipal().toText();
     currentUser =
       users.find((user: any) => user.principal.toText() === principal) || null;
@@ -151,7 +151,7 @@ async function loadBudgetSummary() {
 
   try {
     loader.style.display = "block";
-    const summaries = await backend.getBudgetSummary();
+    const summaries = await backendActor.getBudgetSummary();
     summaryContent.innerHTML = "";
     summaries.forEach(
       ([category, budget, spent, remaining]: [
@@ -190,29 +190,30 @@ async function loadTransactions(
 
   try {
     loader.style.display = "block";
-    const startTime = filters.startDate
+    const startTime : any = filters.startDate
       ? BigInt(new Date(filters.startDate).getTime() * 1000000)
       : null;
-    const endTime = filters.endDate
+    const endTime : any = filters.endDate
       ? BigInt(new Date(filters.endDate).getTime() * 1000000)
       : null;
-    const minAmount = filters.minAmount
+    const minAmount : any = filters.minAmount
       ? BigInt(Math.round(filters.minAmount * 100))
       : null;
-    const maxAmount = filters.maxAmount
+    const maxAmount : any = filters.maxAmount
       ? BigInt(Math.round(filters.maxAmount * 100))
       : null;
-    const category = filters.category || null;
-    const paymentMethod = filters.paymentMethod || null;
+    const category : any = filters.category || null;
+    const paymentMethod: any= filters.paymentMethod || null;
 
-    const transactions = await backend.getFilteredTransactions(
-      startTime,
-      endTime,
-      minAmount,
-      maxAmount,
-      category,
-      paymentMethod,
-    );
+    // const transactions = await backendActor.getFilteredTransactions(
+    //   startTime,
+    //   endTime,
+    //   minAmount,
+    //   maxAmount,
+    //   category,
+    //   paymentMethod,
+    // );
+    const transactions = await backendActor.getAllTransactions()
     transactionList.innerHTML = "";
     transactions.forEach(([id, tx]: [bigint, any]) => {
       const item = document.createElement("div");
@@ -240,7 +241,7 @@ async function loadBudgets() {
 
   try {
     loader.style.display = "block";
-    const budgets = await backend.getBudgets();
+    const budgets = await backendActor.getBudgets();
     budgetList.innerHTML = "";
     budgets.forEach(([category, budget]: [string, any]) => {
       const item = document.createElement("div");
@@ -271,7 +272,7 @@ async function loadUsers() {
 
   try {
     loader.style.display = "block";
-    const users = await backend.getUsers();
+    const users = await backendActor.getUsers();
     userList.innerHTML = "";
     users.forEach((user: any) => {
       const li = document.createElement("li");
@@ -343,39 +344,42 @@ function setupTransactionModal() {
       const amount = BigInt(Math.round(Number(amountInput.value) * 100));
       const category = categoryInput.value;
       const paymentMethod = paymentMethodInput.value;
-      const notes = notesInput.value || null;
+      const notes : any = notesInput.value.trim() ? [notesInput.value] : null;
 
       try {
-        if (id) {
-          const result = await backend.updateTransaction(
-            id,
-            date,
-            amount,
-            category,
-            paymentMethod,
-            notes,
-          );
-          if ("success" in result) {
-            showToast("Transaction updated", "success");
-            loadTransactions();
+          if (id) {
+            const result : any = await backendActor.updateTransaction(
+              id,
+              date,
+              amount,
+              category,
+              paymentMethod,
+              notes,
+            );
+            if (result?.success == null) {
+              console.log("Transaction added")
+              showToast("Transaction updated", "success");
+              loadTransactions();
+            } else {
+              showToast("Failed to update transaction", "error");
+            }
           } else {
-            showToast("Failed to update transaction", "error");
+            const result : any = await backendActor.addTransaction(
+              date,
+              amount,
+              category,
+              paymentMethod,
+              notes,
+            );
+            if (result?.success == null) {
+              console.log("Transaction added")
+              showToast("Transaction added", "success");
+              loadTransactions();
+            } else {
+              showToast("Failed to add transaction", "error");
+            }
           }
-        } else {
-          const result = await backend.addTransaction(
-            date,
-            amount,
-            category,
-            paymentMethod,
-            notes,
-          );
-          if ("success" in result) {
-            showToast("Transaction added", "success");
-            loadTransactions();
-          } else {
-            showToast("Failed to add transaction", "error");
-          }
-        }
+       
         closeModal(modal);
       } catch (error) {
         console.error("Error saving transaction:", error);
@@ -396,21 +400,11 @@ function openTransactionModal(id?: bigint, tx?: any) {
 
   // Get input fields
   const idInput = document.getElementById("transactionId") as HTMLInputElement;
-  const dateInput = document.getElementById(
-    "transactionDate",
-  ) as HTMLInputElement;
-  const amountInput = document.getElementById(
-    "transactionAmount",
-  ) as HTMLInputElement;
-  const categoryInput = document.getElementById(
-    "transactionCategory",
-  ) as HTMLInputElement;
-  const paymentMethodInput = document.getElementById(
-    "transactionPaymentMethod",
-  ) as HTMLInputElement;
-  const notesInput = document.getElementById(
-    "transactionNotes",
-  ) as HTMLTextAreaElement;
+  const dateInput = document.getElementById("transactionDate") as HTMLInputElement;
+  const amountInput = document.getElementById("transactionAmount") as HTMLInputElement;
+  const categoryInput = document.getElementById("transactionCategory") as HTMLInputElement;
+  const paymentMethodInput = document.getElementById("transactionPaymentMethod") as HTMLInputElement;
+  const notesInput = document.getElementById("transactionNotes") as HTMLTextAreaElement;
 
   // Reset the form to clear previous inputs
   form.reset();
@@ -425,22 +419,41 @@ function openTransactionModal(id?: bigint, tx?: any) {
     if (id && tx) {
       console.log("Populating modal with transaction data");
       idInput.value = id.toString();
-      dateInput.value = new Date(Number(tx.date) / 1000000)
-        .toISOString()
-        .split("T")[0]; // Convert timestamp to date
-      amountInput.value = (Number(tx.amount) / 100).toString(); // Convert from cents to dollars
+      dateInput.value = new Date(Number(tx.date) / 1000000).toISOString().split("T")[0];
+      amountInput.value = (Number(tx.amount) / 100).toString();
       categoryInput.value = tx.category;
       paymentMethodInput.value = tx.paymentMethod;
-      notesInput.value = tx.notes || ""; // Use empty string if no notes
+      notesInput.value = tx.notes || "";
     } else {
       // If no transaction data (new transaction), set current date
       console.log("Creating a new transaction");
-      dateInput.value = new Date().toISOString().split("T")[0]; // Set today's date by default
+      dateInput.value = new Date().toISOString().split("T")[0];
     }
   } else {
     console.error("Modal or overlay not found");
   }
 }
+
+// Close transaction modal
+function closeTransactionModal() {
+  console.log("closeTransactionModal triggered");
+
+  // Get modal elements
+  const modal = document.getElementById("transactionModal") as HTMLDivElement;
+  const overlay = document.getElementById("modalOverlay") as HTMLDivElement;
+
+  // Remove 'visible' class to hide modal and overlay
+  overlay.classList.remove("visible");
+  modal.classList.remove("visible");
+}
+
+// Event listener for 'Add New Transaction' button
+document.getElementById("addTransactionBtn")?.addEventListener("click", () => {
+  openTransactionModal();
+});
+
+// Event listener for 'Cancel' button inside the modal
+document.getElementById("closeTransactionModalBtn")?.addEventListener("click", closeTransactionModal);
 
 // Setup budget form
 function setupBudgetForm() {
@@ -459,7 +472,7 @@ function setupBudgetForm() {
       const amount = BigInt(Math.round(Number(amountInput.value) * 100));
 
       try {
-        const result = await backend.setBudget(category, amount);
+        const result = await backendActor.setBudget(category, amount);
         if ("success" in result) {
           showToast("Budget set", "success");
           loadBudgets();
@@ -491,7 +504,7 @@ function setupInviteUser() {
   if (inviteBtn) {
     inviteBtn.onclick = async () => {
       try {
-        const result = await backend.generateInviteLink();
+        const result = await backendActor.generateInviteLink();
         if ("success" in result) {
           const inviteLink = `${window.location.origin}?invite=${result.success}`;
           linkElement.innerText = inviteLink;
@@ -546,7 +559,7 @@ function showInviteModal(token: string) {
       const username = usernameInput.value;
 
       try {
-        const result = await backend.acceptInvite(token, username);
+        const result = await backendActor.acceptInvite(token, username);
         if ("success" in result) {
           showToast("Registration successful", "success");
           closeModal(modal);
@@ -660,7 +673,7 @@ function updateCategorySuggestions(categories: string[]) {
 function confirmDeleteBudget(category: string) {
   showConfirmationModal(`Delete budget for ${category}?`, async () => {
     try {
-      const result = await backend.deleteBudget(category);
+      const result = await backendActor.deleteBudget(category);
       if ("success" in result) {
         showToast("Budget deleted", "success");
         loadBudgets();
@@ -678,7 +691,7 @@ function confirmDeleteBudget(category: string) {
 function confirmRevokeAccess(principal: any) {
   showConfirmationModal(`Revoke access for this user?`, async () => {
     try {
-      const result = await backend.revokeAccess(principal);
+      const result = await backendActor.revokeAccess(principal);
       if ("success" in result) {
         showToast("Access revoked", "success");
         loadUsers();
@@ -720,15 +733,19 @@ function closeModal(modal: HTMLElement) {
   overlay.style.display = "none";
 }
 
-// Show toast notification
+// Toast function
 function showToast(message: string, type: "success" | "error") {
   const container = document.getElementById("toastContainer") as HTMLDivElement;
   const toast = document.createElement("div");
+
   toast.className = `toast ${type}`;
+  
   toast.innerText = message;
+
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 3000);
 }
+
 
 // Setup theme toggle
 function setupThemeToggle() {
