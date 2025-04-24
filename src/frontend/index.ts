@@ -412,8 +412,12 @@ function openTransactionModal(id?: bigint, tx?: any) {
   // Check if modal and overlay exist
   if (modal && overlay) {
     // Add 'visible' class to show modal and overlay
-    overlay.classList.add("visible");
-    modal.classList.add("visible");
+    overlay.style.display = 'block';
+    modal.style.display = 'block';
+    setTimeout(() => {
+      overlay.classList.add("visible");
+      modal.classList.add("visible");
+    }, 10);
 
     // If editing an existing transaction, populate the form with existing data
     if (id && tx) {
@@ -445,6 +449,12 @@ function closeTransactionModal() {
   // Remove 'visible' class to hide modal and overlay
   overlay.classList.remove("visible");
   modal.classList.remove("visible");
+
+  // Reset the display after animation
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    modal.style.display = 'none';
+  }, 300); 
 }
 
 // Event listener for 'Add New Transaction' button

@@ -545,20 +545,21 @@ body.dark-theme {
   inset: 0;
   background-color: rgba(0, 0, 0, 0.6);
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: center;  /* Horizontally center the modal */
+  align-items: center;      /* Vertically center the modal */
   z-index: 1000;
   opacity: 0;
   visibility: hidden;
-  transition:
-    opacity 0.3s ease,
-    visibility 0s 0.3s linear;
+  padding-top: 1%; 
+  box-sizing: border-box;   /* Include padding in the element's total height */
+  transition: opacity 0.3s ease, visibility 0s 0.3s linear;
+  display: none; /* Hide the modal initially */
 }
-
 .modal-overlay.visible {
   opacity: 1;
   visibility: visible;
   transition: opacity 0.3s ease;
+  display: flex; /* Ensure the overlay is displayed when visible */
 }
 
 .modal {
@@ -569,15 +570,17 @@ body.dark-theme {
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
   transform: scale(0.95);
   opacity: 0;
-  transition:
-    transform 0.3s ease,
-    opacity 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  margin: 0 auto;  /* Center horizontally */
+  display: block;
 }
 
 /* Show modal when visible */
 .modal-overlay.visible .modal {
   transform: scale(1);
   opacity: 1;
+    margin-top: auto;
+    margin-bottom: auto;
 }
 
 /* Modal Content (inner) */
