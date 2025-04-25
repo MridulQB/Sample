@@ -10,8 +10,8 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
     
-    <script type="module" crossorigin src="/assets/index-fabbd6a6.js"></script>
-    <link rel="stylesheet" href="/assets/index-88897504.css">
+    <script type="module" crossorigin src="/assets/index-a85e21d7.js"></script>
+    <link rel="stylesheet" href="/assets/index-5cd7216e.css">
   </head>
 
   <body class="light-theme">
@@ -114,6 +114,24 @@
               <button id="clearFiltersBtn" class="button secondary">
                 Clear Filters
               </button>
+
+            </div>
+            <div id="FitertransactionList" aria-live="polite">
+              <table class="fiter-transaction-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Amount ($)</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="FitertransactionBody">
+                  <!--Fiter Transaction data loaded here -->
+                </tbody>
+              </table>
             </div>
           </div>
           <div class="section-actions">
@@ -125,9 +143,28 @@
             <div class="loading-placeholder" id="transactionListLoader">
               Loading transactions...
             </div>
-            <div id="transactionList" aria-live="polite">
+            <!-- <div id="transactionList" aria-live="polite"> -->
               <!-- Transactions will be loaded here -->
+            <!-- </div> -->
+
+            <div id="transactionList" aria-live="polite">
+              <table class="transaction-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Amount ($)</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="transactionBody">
+                  <!-- Transaction data loaded here -->
+                </tbody>
+              </table>
             </div>
+            
           </div>
         </div>
       </section>

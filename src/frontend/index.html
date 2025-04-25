@@ -112,6 +112,24 @@
               <button id="clearFiltersBtn" class="button secondary">
                 Clear Filters
               </button>
+
+            </div>
+            <div id="FitertransactionList" aria-live="polite">
+              <table class="fiter-transaction-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Amount ($)</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="FitertransactionBody">
+                  <!--Fiter Transaction data loaded here -->
+                </tbody>
+              </table>
             </div>
           </div>
           <div class="section-actions">
@@ -123,9 +141,28 @@
             <div class="loading-placeholder" id="transactionListLoader">
               Loading transactions...
             </div>
-            <div id="transactionList" aria-live="polite">
+            <!-- <div id="transactionList" aria-live="polite"> -->
               <!-- Transactions will be loaded here -->
+            <!-- </div> -->
+
+            <div id="transactionList" aria-live="polite">
+              <table class="transaction-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Amount ($)</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="transactionBody">
+                  <!-- Transaction data loaded here -->
+                </tbody>
+              </table>
             </div>
+            
           </div>
         </div>
       </section>

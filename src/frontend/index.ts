@@ -1,8 +1,15 @@
 import { AuthClient } from "@dfinity/auth-client";
 import { backend as backendActor } from "../declarations/backend/index.js";
+import { HttpAgent } from "@dfinity/agent";
+import {
+  createActor,
+  idlFactory,
+} from "../declarations/backend/index.js";
 
 // Use local Internet Identity for development, mainnet for production
-const IDENTITY_PROVIDER = "https://identity.ic0.app";
+const IDENTITY_PROVIDER = `http://${process.env.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`;
+
+// const IDENTITY_PROVIDER =  "https://identity.ic0.app"
 
 let authClient: AuthClient | null = null;
 let backend = backendActor;
@@ -173,63 +180,46 @@ async function loadBudgetSummary() {
   }
 }
 
-// Load transactions
-async function loadTransactions(
-  filters: {
-    startDate?: string;
-    endDate?: string;
-    minAmount?: number;
-    maxAmount?: number;
-    category?: string;
-    paymentMethod?: string;
-  } = {},
-) {
-  const transactionList = document.getElementById("transactionList");
-  const loader = document.getElementById("transactionListLoader");
-  if (!transactionList || !loader) return;
+async function loadTransactions(filters = {}) {
+  const tbody = document.getElementById("transactionBody")
+  const loader = document.getElementById("transactionListLoader")
+  if (!tbody || !loader) return
 
-  try {
-    loader.style.display = "block";
-    const startTime : any = filters.startDate
-      ? BigInt(new Date(filters.startDate).getTime() * 1000000)
-      : null;
-    const endTime : any = filters.endDate
-      ? BigInt(new Date(filters.endDate).getTime() * 1000000)
-      : null;
-    const minAmount : any = filters.minAmount
-      ? BigInt(Math.round(filters.minAmount * 100))
-      : null;
-    const maxAmount : any = filters.maxAmount
-      ? BigInt(Math.round(filters.maxAmount * 100))
-      : null;
-    const category : any = filters.category || null;
-    const paymentMethod: any= filters.paymentMethod || null;
+  tbody.innerHTML = ""
+  loader.style.display = "block"
 
-    // const transactions = await backendActor.getFilteredTransactions(
-    //   startTime,
-    //   endTime,
-    //   minAmount,
-    //   maxAmount,
-    //   category,
-    //   paymentMethod,
-    // );
-    const transactions = await backendActor.getAllTransactions()
-    transactionList.innerHTML = "";
-    transactions.forEach(([id, tx]: [bigint, any]) => {
-      const item = document.createElement("div");
-      item.innerText = `ID: ${id}, Amount: $${Number(tx.amount) / 100}, Category: ${tx.category}, Date: ${new Date(Number(tx.date) / 1000000).toLocaleDateString()}`;
-      const editBtn = document.createElement("button");
-      editBtn.innerText = "Edit";
-      editBtn.className = "button secondary small";
-      editBtn.onclick = () => openTransactionModal(id, tx);
-      item.appendChild(editBtn);
-      transactionList.appendChild(item);
+  try {  
+    const result = await backendActor.getAllTransactions()
+    const flat = result.flat();
+    const paired = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const id = flat[i] as bigint;
+      const tx = flat[i + 1] as any;
+      paired.push([id, tx]);
+    }
+
+    paired.sort((a, b) => {
+      return Number(a[0]) - Number(b[0]); 
     });
-  } catch (error) {
-    console.error("Failed to load transactions:", error);
-    showToast("Failed to load transactions", "error");
+
+    for (const [id, tx] of paired) {
+      console.log("tx.owner : ", tx.owner.toText());
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${id.toString()}</td>
+        <td>${new Date(Number(tx.date) / 1_000_000).toLocaleDateString()}</td>
+        <td>${(Number(tx.amount) / 100).toFixed(2)}</td>
+        <td>${tx.category}</td>
+        <td>${tx.paymentMethod}</td>
+        <td>${tx.notes?.join(", ") || "-"}</td>
+      `;
+      tbody.appendChild(row)
+    }
+  } catch (err) {
+    console.error("Failed to load transactions:", err)
+    showToast("Failed to load transactions", "error")
   } finally {
-    loader.style.display = "none";
+    loader.style.display = "none"
   }
 }
 
@@ -344,42 +334,51 @@ function setupTransactionModal() {
       const amount = BigInt(Math.round(Number(amountInput.value) * 100));
       const category = categoryInput.value;
       const paymentMethod = paymentMethodInput.value;
-      const notes : any = notesInput.value.trim() ? [notesInput.value] : null;
+      const notes: any = notesInput.value.trim() ? [notesInput.value] : null;
 
       try {
-          if (id) {
-            const result : any = await backendActor.updateTransaction(
-              id,
-              date,
-              amount,
-              category,
-              paymentMethod,
-              notes,
-            );
-            if (result?.success == null) {
-              console.log("Transaction added")
-              showToast("Transaction updated", "success");
-              loadTransactions();
-            } else {
-              showToast("Failed to update transaction", "error");
-            }
+        if (id) {
+          authClient = await AuthClient.create();
+          const identity = authClient.getIdentity();
+          const principal = identity.getPrincipal().toText();
+          console.log("Authenticated principal:", principal);
+          const agent = new HttpAgent({ identity });
+          await agent.fetchRootKey();
+          const BackendActors = createActor(
+            process.env.CANISTER_ID_BACKEND, { agent });
+          console.log("BackendActors : ", BackendActors)
+          const result: any = await BackendActors.updateTransaction(
+            id,
+            date,
+            amount,
+            category,
+            paymentMethod,
+            notes,
+          );
+          if (result?.success == null) {
+            console.log("Transaction added")
+            showToast("Transaction updated", "success");
+            loadTransactions();
           } else {
-            const result : any = await backendActor.addTransaction(
-              date,
-              amount,
-              category,
-              paymentMethod,
-              notes,
-            );
-            if (result?.success == null) {
-              console.log("Transaction added")
-              showToast("Transaction added", "success");
-              loadTransactions();
-            } else {
-              showToast("Failed to add transaction", "error");
-            }
+            showToast("Failed to update transaction", "error");
           }
-       
+        } else {
+          const result: any = await backendActor.addTransaction(
+            date,
+            amount,
+            category,
+            paymentMethod,
+            notes,
+          );
+          if (result?.success == null) {
+            console.log("Transaction added")
+            showToast("Transaction added", "success");
+            loadTransactions();
+          } else {
+            showToast("Failed to add transaction", "error");
+          }
+        }
+
         closeModal(modal);
       } catch (error) {
         console.error("Error saving transaction:", error);
@@ -454,7 +453,7 @@ function closeTransactionModal() {
   setTimeout(() => {
     overlay.style.display = 'none';
     modal.style.display = 'none';
-  }, 300); 
+  }, 300);
 }
 
 // Event listener for 'Add New Transaction' button
@@ -601,6 +600,71 @@ function getInviteErrorMessage(result: any): string {
   return "Unknown error";
 }
 
+
+async function getFilterTransactions(filters: {
+  startDate?: string;
+  endDate?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  category?: string;
+  paymentMethod?: string;
+} = {}) {
+  const tbody = document.getElementById("FitertransactionBody")
+  const toNullable = <T>(val?: T): [T] | [] => (val !== undefined ? [val] : []);
+
+  const startDate = toNullable(filters.startDate ? BigInt(new Date(filters.startDate).getTime() * 1_000_000) : undefined);
+  const endDate = toNullable(filters.endDate ? BigInt(new Date(filters.endDate).getTime() * 1_000_000) : undefined);
+  const minAmount = toNullable(filters.minAmount !== undefined ? BigInt(filters.minAmount) : undefined);
+  const maxAmount = toNullable(filters.maxAmount !== undefined ? BigInt(filters.maxAmount) : undefined);
+  const category = filters.category ? [filters.category.trim()] : [];
+  const paymentMethodOpt = filters.paymentMethod ? [filters.paymentMethod.trim()] : [];
+  tbody.innerHTML = ""
+
+  try {
+    const result = await backendActor.getFilteredTransactions(
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+      category,
+      paymentMethodOpt
+    );
+
+    console.log("result : ", result);
+
+    const flat = result.flat();
+
+    const paired = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const id = flat[i] as bigint;
+      const tx = flat[i + 1] as any;
+      paired.push([id, tx]);
+    }
+
+    paired.sort((a, b) => {
+      return Number(a[0]) - Number(b[0]); 
+    });
+
+    for (const [id, tx] of paired) {
+      console.log("tx.owner : ", tx.owner.toText());
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${id.toString()}</td>
+        <td>${new Date(Number(tx.date) / 1_000_000).toLocaleDateString()}</td>
+        <td>${(Number(tx.amount) / 100).toFixed(2)}</td>
+        <td>${tx.category}</td>
+        <td>${tx.paymentMethod}</td>
+        <td>${tx.notes?.join(", ") || "-"}</td>
+      `;
+      tbody.appendChild(row)
+    }
+
+  } catch (error) {
+    console.log("error", error)
+  }
+}
+
+
 // Setup transaction filters
 function setupTransactionFilters() {
   const applyBtn = document.getElementById(
@@ -630,7 +694,7 @@ function setupTransactionFilters() {
 
   if (applyBtn) {
     applyBtn.onclick = () => {
-      loadTransactions({
+      getFilterTransactions({
         startDate: startDateInput.value,
         endDate: endDateInput.value,
         minAmount: minAmountInput.value
@@ -639,8 +703,8 @@ function setupTransactionFilters() {
         maxAmount: maxAmountInput.value
           ? Number(maxAmountInput.value)
           : undefined,
-        category: categoryInput.value || undefined,
-        paymentMethod: paymentMethodInput.value || undefined,
+        category: categoryInput.value,
+        paymentMethod: paymentMethodInput.value,
       });
     };
   }
@@ -749,7 +813,7 @@ function showToast(message: string, type: "success" | "error") {
   const toast = document.createElement("div");
 
   toast.className = `toast ${type}`;
-  
+
   toast.innerText = message;
 
   container.appendChild(toast);
