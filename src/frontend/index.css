@@ -830,82 +830,6 @@ body.dark-theme {
 }
 
 
-
-.transaction-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: Arial, sans-serif;
-  margin-top: 20px;
-}
-
-.transaction-table th, .transaction-table td {
-  border: 1px solid #ddd;
-  padding: 10px;
-  text-align: center;
-}
-
-.transaction-table th {
-  background-color: #f4f6f8;
-  font-weight: bold;
-}
-
-.transaction-table tr:nth-child(even) {
-  background-color: #fafafa;
-}
-
-.transaction-table tr:hover {
-  background-color: #f0f7ff;
-}
-
-.button.secondary.small {
-  padding: 5px 10px;
-  background-color: #4a90e2;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.button.secondary.small:hover {
-  background-color: #357ab8;
-}
-
-
-
-
-
-
-
-/* 
-
-.fiter-transaction-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: Arial, sans-serif;
-  margin-top: 20px;
-}
-
-.fiter-transaction-table th, .fiter-transaction-table td {
-  border: 1px solid #ddd;
-  padding: 10px;
-  text-align: center;
-}
-
-.fiter-transaction-table th {
-  background-color: #f4f6f8;
-  font-weight: bold;
-}
-
-.fiter-transaction-table tr:nth-child(even) {
-  background-color: #fafafa;
-}
-
-.fiter-transaction-table tr:hover {
-  background-color: #f0f7ff;
-} */
-
-
-/* Base Table Styling */
 .fiter-transaction-table {
   width: 100%;
   border-collapse: collapse;
@@ -977,19 +901,6 @@ body.dark-theme {
 #themeToggleBtn:hover {
   background-color: #0056b3;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 .transaction-table {
   width: 100%;
