@@ -1,3 +1,10 @@
+type UserProfile = 
+ record {
+   notificationsEnabled: bool;
+   preferredCurrency: text;
+   theme: text;
+   username: text;
+ };
 type User = 
  record {
    joinedAt: Time;
@@ -12,10 +19,15 @@ type UpdateTransactionResponse =
    paymentMethodEmpty;
    success;
  };
+type UpdateProfileResponse = 
+ variant {
+   invalidUser;
+   success;
+ };
 type TransactionId = nat;
 type Transaction = 
  record {
-   amount: int;
+   amount: nat;
    category: Category;
    createdAt: Time;
    date: Time;
@@ -42,7 +54,25 @@ type RevokeAccessResponse =
    success;
    unauthorizedActivity;
  };
+type PaymentMethodSummary = 
+ record {
+   count: nat;
+   method: PaymentMethod;
+   spent: int;
+ };
+type PaymentMethodResponse = 
+ variant {
+   invalidMethod;
+   methodExists;
+   success;
+ };
 type PaymentMethod = text;
+type NotificationSettings = 
+ record {
+   browserNotifications: bool;
+   budgetWarningThreshold: nat;
+   emailNotifications: bool;
+ };
 type InviteToken = text;
 type InvitationResponse = 
  variant {
@@ -68,6 +98,24 @@ type DeleteBudgetResponse =
    invalidCategory;
    success;
  };
+type CategorySummary = 
+ record {
+   budget: opt nat;
+   category: Category;
+   percentage: float64;
+   spent: int;
+ };
+type CategoryResponse = 
+ variant {
+   categoryExists;
+   invalidCategory;
+   success;
+ };
+type CategoryAction = 
+ variant {
+   add;
+   delete;
+ };
 type Category = text;
 type Budget = 
  record {
@@ -83,16 +131,31 @@ type AddTransactionResponse =
  };
 service : {
   acceptInvite: (InviteToken, text) -> (InvitationResponse);
-  addTransaction: (Time, int, Category, PaymentMethod, opt text) ->
+  addPaymentMethod: (PaymentMethod) -> (PaymentMethodResponse);
+  addTransaction: (Time, nat, Category, PaymentMethod, opt text) ->
    (AddTransactionResponse);
   assertAdmin: () -> ();
+  checkBudgetStatus: () -> (vec record {
+                                  Category;
+                                  nat;
+                                  int;
+                                  nat;
+                                  bool;
+                                });
   deleteBudget: (Category) -> (DeleteBudgetResponse);
+  deletePaymentMethod: (PaymentMethod) -> (PaymentMethodResponse);
   deleteTransaction: (TransactionId) -> (DeleteTransactionResponse);
   generateInviteLink: () -> (GenerateInviteLinkResponse);
   getAllTransactions: () -> (vec record {
                                    TransactionId;
                                    Transaction;
                                  }) query;
+  getBudgetAlerts: () -> (vec record {
+                                Category;
+                                int;
+                                nat;
+                                float64;
+                              });
   getBudgetSummary: () -> (vec record {
                                  Category;
                                  nat;
@@ -103,16 +166,37 @@ service : {
                            Category;
                            Budget;
                          }) query;
+  getCategories: () -> (vec Category) query;
+  getCategorySummary: (opt Time, opt Time) -> (vec CategorySummary) query;
+  getDashboardSummary: () ->
+   (record {
+      budgetStatus: vec record {
+                          Category;
+                          float64;
+                        };
+      categoriesCount: nat;
+      totalExpenses: int;
+      totalIncome: int;
+      totalTransactions: nat;
+    }) query;
   getFilteredTransactions: (opt Time, opt Time, opt int, opt int,
    opt Category, opt PaymentMethod) ->
    (vec record {
           TransactionId;
           Transaction;
         }) query;
+  getNotificationSettings: () -> (opt NotificationSettings) query;
+  getPaymentMethodSummary: (opt Time, opt Time) ->
+   (vec PaymentMethodSummary) query;
+  getPaymentMethods: () -> (vec PaymentMethod) query;
   getTransaction: (TransactionId) -> (opt Transaction) query;
+  getUserProfile: () -> (opt UserProfile) query;
   getUsers: () -> (vec User) query;
+  manageCategory: (Category, CategoryAction) -> (CategoryResponse);
   revokeAccess: (principal) -> (RevokeAccessResponse);
   setBudget: (Category, nat) -> (SetBudgetResponse);
-  updateTransaction: (TransactionId, Time, int, Category, PaymentMethod,
+  setNotificationSettings: (NotificationSettings) -> (UpdateProfileResponse);
+  setUserProfile: (UserProfile) -> (UpdateProfileResponse);
+  updateTransaction: (TransactionId, Time, nat, Category, PaymentMethod,
    opt text) -> (UpdateTransactionResponse);
 }
