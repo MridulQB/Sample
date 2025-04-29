@@ -180,6 +180,7 @@ async function loadBudgetSummary() {
   }
 }
 
+
 async function loadTransactions(filters = {}) {
   const tbody = document.getElementById("transactionBody")
   const loader = document.getElementById("transactionListLoader")
@@ -188,7 +189,7 @@ async function loadTransactions(filters = {}) {
   tbody.innerHTML = ""
   loader.style.display = "block"
 
-  try {  
+  try {
     const result = await backendActor.getAllTransactions()
     const flat = result.flat();
     const paired = [];
@@ -199,7 +200,7 @@ async function loadTransactions(filters = {}) {
     }
 
     paired.sort((a, b) => {
-      return Number(a[0]) - Number(b[0]); 
+      return Number(a[0]) - Number(b[0]);
     });
 
     for (const [id, tx] of paired) {
@@ -212,6 +213,10 @@ async function loadTransactions(filters = {}) {
         <td>${tx.category}</td>
         <td>${tx.paymentMethod}</td>
         <td>${tx.notes?.join(", ") || "-"}</td>
+         <td>
+            <button onclick="handleDelete(${id})">Delete</button>
+            <button class="edit-btn" data-id="${id}">Edit</button>
+        </td>
       `;
       tbody.appendChild(row)
     }
@@ -220,6 +225,22 @@ async function loadTransactions(filters = {}) {
     showToast("Failed to load transactions", "error")
   } finally {
     loader.style.display = "none"
+  }
+}
+
+(window as any).handleDelete = async function handleDelete(id: bigint) {
+  try {
+    const result: any = await backendActor.deleteTransaction(id);
+    if (result.success == null) {
+      showToast("Transaction deleted successfully!", "success");
+      await loadTransactions();
+    } else {
+      showToast("Error while deleting Transaction!", "error");
+      await loadTransactions();
+    }
+  } catch (error) {
+    console.error("Error deleting transaction:", error);
+    alert("Something went wrong while deleting.");
   }
 }
 
@@ -642,7 +663,7 @@ async function getFilterTransactions(filters: {
     }
 
     paired.sort((a, b) => {
-      return Number(a[0]) - Number(b[0]); 
+      return Number(a[0]) - Number(b[0]);
     });
 
     for (const [id, tx] of paired) {
@@ -655,7 +676,12 @@ async function getFilterTransactions(filters: {
         <td>${tx.category}</td>
         <td>${tx.paymentMethod}</td>
         <td>${tx.notes?.join(", ") || "-"}</td>
+        <td>
+          <button onclick="handleDelete(${id})">Delete</button>
+          <button class="edit-btn" data-id="${id}">Edit</button>
+        </td>
       `;
+
       tbody.appendChild(row)
     }
 
@@ -663,7 +689,6 @@ async function getFilterTransactions(filters: {
     console.log("error", error)
   }
 }
-
 
 // Setup transaction filters
 function setupTransactionFilters() {
