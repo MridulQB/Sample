@@ -180,19 +180,21 @@ async function loadBudgetSummary() {
   }
 }
 
-
 async function loadTransactions(filters = {}) {
-  const tbody = document.getElementById("transactionBody")
-  const loader = document.getElementById("transactionListLoader")
-  if (!tbody || !loader) return
+  const tbody = document.getElementById("transactionBody");
+  const loader = document.getElementById("transactionListLoader");
 
-  tbody.innerHTML = ""
-  loader.style.display = "block"
+  if (!tbody || !loader) return;
+
+  tbody.innerHTML = "";
+  loader.style.display = "block";
 
   try {
-    const result = await backendActor.getAllTransactions()
+    const result = await backendActor.getAllTransactions();
     const flat = result.flat();
     const paired = [];
+    let htmlContent = ''; // String to store all the rows
+
     for (let i = 0; i < flat.length; i += 2) {
       const id = flat[i] as bigint;
       const tx = flat[i + 1] as any;
@@ -205,28 +207,34 @@ async function loadTransactions(filters = {}) {
 
     for (const [id, tx] of paired) {
       console.log("tx.owner : ", tx.owner.toText());
-      const row = document.createElement("tr");
-      row.innerHTML = `
-        <td>${id.toString()}</td>
-        <td>${new Date(Number(tx.date) / 1_000_000).toLocaleDateString()}</td>
-        <td>${(Number(tx.amount) / 100).toFixed(2)}</td>
-        <td>${tx.category}</td>
-        <td>${tx.paymentMethod}</td>
-        <td>${tx.notes?.join(", ") || "-"}</td>
-         <td>
+
+      htmlContent += `
+        <tr>
+          <td>${id.toString()}</td>
+          <td>${new Date(Number(tx.date) / 1_000_000).toLocaleDateString()}</td>
+          <td>${(Number(tx.amount) / 100).toFixed(2)}</td>
+          <td>${tx.category}</td>
+          <td>${tx.paymentMethod}</td>
+          <td>${tx.notes?.join(", ") || "-"}</td>
+          <td>
+            ${console.log("Transaction Details:", tx)}
             <button onclick="handleDelete(${id})">Delete</button>
-            <button class="edit-btn" data-id="${id}">Edit</button>
-        </td>
+            <button onclick="openTransactionModal(${id}, '${tx.paymentMethod}', ${tx.amount}, '${tx.category}', ${tx.date}, '${Array.isArray(tx.notes) ? tx.notes.join(", ") : tx.notes}')">Edit</button>
+          </td>
+        </tr>
       `;
-      tbody.appendChild(row)
     }
+
+    tbody.innerHTML = htmlContent;
+
   } catch (err) {
-    console.error("Failed to load transactions:", err)
-    showToast("Failed to load transactions", "error")
+    console.error("Failed to load transactions:", err);
+    showToast("Failed to load transactions", "error");
   } finally {
-    loader.style.display = "none"
+    loader.style.display = "none";
   }
 }
+
 
 (window as any).handleDelete = async function handleDelete(id: bigint) {
   try {
@@ -410,10 +418,8 @@ function setupTransactionModal() {
 }
 
 // Open transaction modal
-function openTransactionModal(id?: bigint, tx?: any) {
-  console.log("openTransactionModal triggered");
+(window as any).openTransactionModal = function openTransactionModal(id : any,paymentMethod : any, amount : any, category: any,  date : any , notes: any  ) {
 
-  // Get modal elements
   const modal = document.getElementById("transactionModal") as HTMLDivElement;
   const overlay = document.getElementById("modalOverlay") as HTMLDivElement;
   const form = document.getElementById("transactionForm") as HTMLFormElement;
@@ -438,16 +444,15 @@ function openTransactionModal(id?: bigint, tx?: any) {
       overlay.classList.add("visible");
       modal.classList.add("visible");
     }, 10);
-
     // If editing an existing transaction, populate the form with existing data
-    if (id && tx) {
-      console.log("Populating modal with transaction data");
+    console.log("Populating modal with tx data", category, amount, date,id,  notes);
+    if (id) {
       idInput.value = id.toString();
-      dateInput.value = new Date(Number(tx.date) / 1000000).toISOString().split("T")[0];
-      amountInput.value = (Number(tx.amount) / 100).toString();
-      categoryInput.value = tx.category;
-      paymentMethodInput.value = tx.paymentMethod;
-      notesInput.value = tx.notes || "";
+      dateInput.value = new Date(Number(date) / 1000000).toISOString().split("T")[0];
+      amountInput.value = (Number(amount) / 100).toString();
+      categoryInput.value = category;
+      paymentMethodInput.value = paymentMethod;
+      notesInput.value = notes || "";
     } else {
       // If no transaction data (new transaction), set current date
       console.log("Creating a new transaction");
@@ -678,7 +683,9 @@ async function getFilterTransactions(filters: {
         <td>${tx.notes?.join(", ") || "-"}</td>
         <td>
           <button onclick="handleDelete(${id})">Delete</button>
-          <button class="edit-btn" data-id="${id}">Edit</button>
+          ${console.log("data",tx)}
+          <button onclick="openTransactionModal(${id},${tx})"
+          data-id="${id}">Edit</button>
         </td>
       `;
 
