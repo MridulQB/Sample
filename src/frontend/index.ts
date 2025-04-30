@@ -5,6 +5,7 @@ import {
   createActor,
   idlFactory,
 } from "../declarations/backend/index.js";
+import { Null } from "@dfinity/candid/lib/cjs/idl.js";
 
 // Use local Internet Identity for development, mainnet for production
 const IDENTITY_PROVIDER = `http://${process.env.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`;
@@ -24,8 +25,6 @@ async function init() {
   try {
     authClient = await AuthClient.create();
     const isAuthenticated = await authClient.isAuthenticated();
-    console.log("AuthClient initialized, isAuthenticated:", isAuthenticated);
-
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite");
     if (inviteToken && !isAuthenticated) {
@@ -53,7 +52,6 @@ function showLoginButton() {
         showToast("Authentication error", "error");
         return;
       }
-      console.log("Initiating login with provider:", IDENTITY_PROVIDER);
       try {
         await authClient.login({
           identityProvider: IDENTITY_PROVIDER,
@@ -190,10 +188,12 @@ async function loadTransactions(filters = {}) {
   loader.style.display = "block";
 
   try {
-    const result = await backendActor.getAllTransactions();
+    const a = await backendActor.assertAdmin();
+    const result = await backendActor.getUserTransactionsByCaller();
+    console.log("result : ",result)
     const flat = result.flat();
     const paired = [];
-    let htmlContent = ''; // String to store all the rows
+    let htmlContent = '';
 
     for (let i = 0; i < flat.length; i += 2) {
       const id = flat[i] as bigint;
@@ -206,8 +206,6 @@ async function loadTransactions(filters = {}) {
     });
 
     for (const [id, tx] of paired) {
-      console.log("tx.owner : ", tx.owner.toText());
-
       htmlContent += `
         <tr>
           <td>${id.toString()}</td>
@@ -217,9 +215,8 @@ async function loadTransactions(filters = {}) {
           <td>${tx.paymentMethod}</td>
           <td>${tx.notes?.join(", ") || "-"}</td>
           <td>
-            ${console.log("Transaction Details:", tx)}
             <button onclick="handleDelete(${id})">Delete</button>
-            <button onclick="openTransactionModal(${id}, '${tx.paymentMethod}', ${tx.amount}, '${tx.category}', ${tx.date}, '${Array.isArray(tx.notes) ? tx.notes.join(", ") : tx.notes}')">Edit</button>
+            <button onclick="openTransactionModal(${tx.id}, '${tx.paymentMethod}', ${tx.amount}, '${tx.category}', ${tx.date}, '${Array.isArray(tx.notes) ? tx.notes.join(", ") : tx.notes}')">Edit</button>
           </td>
         </tr>
       `;
@@ -358,25 +355,17 @@ function setupTransactionModal() {
         "transactionNotes",
       ) as HTMLTextAreaElement;
 
-      const id = idInput.value ? BigInt(idInput.value) : null;
       const date = BigInt(new Date(dateInput.value).getTime() * 1000000);
       const amount = BigInt(Math.round(Number(amountInput.value) * 100));
       const category = categoryInput.value;
+      const id = idInput.value ? BigInt(idInput.value) : null;
       const paymentMethod = paymentMethodInput.value;
       const notes: any = notesInput.value.trim() ? [notesInput.value] : null;
 
       try {
-        if (id) {
-          authClient = await AuthClient.create();
-          const identity = authClient.getIdentity();
-          const principal = identity.getPrincipal().toText();
-          console.log("Authenticated principal:", principal);
-          const agent = new HttpAgent({ identity });
-          await agent.fetchRootKey();
-          const BackendActors = createActor(
-            process.env.CANISTER_ID_BACKEND, { agent });
-          console.log("BackendActors : ", BackendActors)
-          const result: any = await BackendActors.updateTransaction(
+        if (id !== null || id !== undefined) {
+          const adminResult = await backendActor.assertAdmin();
+          const result: any = await backendActor.updateTransaction(
             id,
             date,
             amount,
@@ -385,13 +374,13 @@ function setupTransactionModal() {
             notes,
           );
           if (result?.success == null) {
-            console.log("Transaction added")
             showToast("Transaction updated", "success");
             loadTransactions();
           } else {
             showToast("Failed to update transaction", "error");
           }
         } else {
+          const adminResult = await backendActor.assertAdmin();
           const result: any = await backendActor.addTransaction(
             date,
             amount,
@@ -400,7 +389,6 @@ function setupTransactionModal() {
             notes,
           );
           if (result?.success == null) {
-            console.log("Transaction added")
             showToast("Transaction added", "success");
             loadTransactions();
           } else {
@@ -419,53 +407,54 @@ function setupTransactionModal() {
 
 // Open transaction modal
 (window as any).openTransactionModal = function openTransactionModal(id : any,paymentMethod : any, amount : any, category: any,  date : any , notes: any  ) {
-
-  const modal = document.getElementById("transactionModal") as HTMLDivElement;
-  const overlay = document.getElementById("modalOverlay") as HTMLDivElement;
-  const form = document.getElementById("transactionForm") as HTMLFormElement;
-
-  // Get input fields
-  const idInput = document.getElementById("transactionId") as HTMLInputElement;
-  const dateInput = document.getElementById("transactionDate") as HTMLInputElement;
-  const amountInput = document.getElementById("transactionAmount") as HTMLInputElement;
-  const categoryInput = document.getElementById("transactionCategory") as HTMLInputElement;
-  const paymentMethodInput = document.getElementById("transactionPaymentMethod") as HTMLInputElement;
-  const notesInput = document.getElementById("transactionNotes") as HTMLTextAreaElement;
-
-  // Reset the form to clear previous inputs
-  form.reset();
-
-  // Check if modal and overlay exist
-  if (modal && overlay) {
-    // Add 'visible' class to show modal and overlay
-    overlay.style.display = 'block';
-    modal.style.display = 'block';
-    setTimeout(() => {
-      overlay.classList.add("visible");
-      modal.classList.add("visible");
-    }, 10);
-    // If editing an existing transaction, populate the form with existing data
-    console.log("Populating modal with tx data", category, amount, date,id,  notes);
-    if (id) {
-      idInput.value = id.toString();
-      dateInput.value = new Date(Number(date) / 1000000).toISOString().split("T")[0];
-      amountInput.value = (Number(amount) / 100).toString();
-      categoryInput.value = category;
-      paymentMethodInput.value = paymentMethod;
-      notesInput.value = notes || "";
+  try {
+    const modal = document.getElementById("transactionModal") as HTMLDivElement;
+    const overlay = document.getElementById("modalOverlay") as HTMLDivElement;
+    const form = document.getElementById("transactionForm") as HTMLFormElement;
+  
+    // Get input fields
+    const idInput = document.getElementById("transactionId") as HTMLInputElement;
+    const dateInput = document.getElementById("transactionDate") as HTMLInputElement;
+    const amountInput = document.getElementById("transactionAmount") as HTMLInputElement;
+    const categoryInput = document.getElementById("transactionCategory") as HTMLInputElement;
+    const paymentMethodInput = document.getElementById("transactionPaymentMethod") as HTMLInputElement;
+    const notesInput = document.getElementById("transactionNotes") as HTMLTextAreaElement;
+  
+    // Reset the form to clear previous inputs
+    form.reset();
+  
+    // Check if modal and overlay exist
+    if (modal && overlay) {
+      // Add 'visible' class to show modal and overlay
+      overlay.style.display = 'block';
+      modal.style.display = 'block';
+      setTimeout(() => {
+        overlay.classList.add("visible");
+        modal.classList.add("visible");
+      }, 10);
+      // If editing an existing transaction, populate the form with existing data
+      if (id !== null || id !== undefined) {
+        idInput.value = id.toString();
+        dateInput.value = new Date(Number(date) / 1000000).toISOString().split("T")[0];
+        amountInput.value = (Number(amount) / 100).toString();
+        categoryInput.value = category;
+        paymentMethodInput.value = paymentMethod;
+        notesInput.value = notes || "";
+      } else {
+        // If no transaction data (new transaction), set current date
+        dateInput.value = new Date().toISOString().split("T")[0];
+      }
     } else {
-      // If no transaction data (new transaction), set current date
-      console.log("Creating a new transaction");
-      dateInput.value = new Date().toISOString().split("T")[0];
+      console.error("Modal or overlay not found");
     }
-  } else {
-    console.error("Modal or overlay not found");
+  } catch (error) {
+    console.log("error : ",error)
   }
+
 }
 
 // Close transaction modal
 function closeTransactionModal() {
-  console.log("closeTransactionModal triggered");
 
   // Get modal elements
   const modal = document.getElementById("transactionModal") as HTMLDivElement;
@@ -672,7 +661,6 @@ async function getFilterTransactions(filters: {
     });
 
     for (const [id, tx] of paired) {
-      console.log("tx.owner : ", tx.owner.toText());
       const row = document.createElement("tr");
       row.innerHTML = `
         <td>${id.toString()}</td>
@@ -683,7 +671,6 @@ async function getFilterTransactions(filters: {
         <td>${tx.notes?.join(", ") || "-"}</td>
         <td>
           <button onclick="handleDelete(${id})">Delete</button>
-          ${console.log("data",tx)}
           <button onclick="openTransactionModal(${id},${tx})"
           data-id="${id}">Edit</button>
         </td>

@@ -3,14 +3,12 @@ type UserProfile =
    notificationsEnabled: bool;
    preferredCurrency: text;
    theme: text;
-   username: text;
  };
 type User = 
  record {
    joinedAt: Time;
    "principal": principal;
    role: Role;
-   username: text;
  };
 type UpdateTransactionResponse = 
  variant {
@@ -38,6 +36,11 @@ type Transaction =
    updatedAt: Time;
  };
 type Time = int;
+type SpendingTrend = 
+ record {
+   period: text;
+   spent: int;
+ };
 type SetBudgetResponse = 
  variant {
    categoryEmpty;
@@ -80,7 +83,6 @@ type InvitationResponse =
    alreadyUsedToken;
    expiredToken;
    invalidToken;
-   shortUsername;
    success;
  };
 type GenerateInviteLinkResponse = 
@@ -130,7 +132,7 @@ type AddTransactionResponse =
    success;
  };
 service : {
-  acceptInvite: (InviteToken, text) -> (InvitationResponse);
+  acceptInvite: (InviteToken) -> (InvitationResponse);
   addPaymentMethod: (PaymentMethod) -> (PaymentMethodResponse);
   addTransaction: (Time, nat, Category, PaymentMethod, opt text) ->
    (AddTransactionResponse);
@@ -150,12 +152,13 @@ service : {
                                    TransactionId;
                                    Transaction;
                                  }) query;
-  getBudgetAlerts: () -> (vec record {
-                                Category;
-                                int;
-                                nat;
-                                float64;
-                              });
+  getBudgetAlertsForUser: (principal) ->
+   (vec record {
+          Category;
+          int;
+          nat;
+          float64;
+        }) query;
   getBudgetSummary: () -> (vec record {
                                  Category;
                                  nat;
@@ -185,12 +188,70 @@ service : {
           TransactionId;
           Transaction;
         }) query;
-  getNotificationSettings: () -> (opt NotificationSettings) query;
+  getNotificationSettingsByPrincipal: (principal) ->
+   (opt NotificationSettings) query;
+  getNotificationSettingsNyCaller: () -> (opt NotificationSettings) query;
   getPaymentMethodSummary: (opt Time, opt Time) ->
    (vec PaymentMethodSummary) query;
   getPaymentMethods: () -> (vec PaymentMethod) query;
+  getSpendingTrends: (nat, opt Category) -> (vec SpendingTrend) query;
   getTransaction: (TransactionId) -> (opt Transaction) query;
-  getUserProfile: () -> (opt UserProfile) query;
+  getTransactionsByUser: (principal) ->
+   (vec record {
+          TransactionId;
+          Transaction;
+        });
+  getUserCategorySummary: (principal, opt Time, opt Time) ->
+   (vec CategorySummary) query;
+  getUserDashboardSummary: (principal) ->
+   (record {
+      budgetStatus: vec record {
+                          Category;
+                          float64;
+                        };
+      categoriesCount: nat;
+      totalExpenses: int;
+      totalIncome: int;
+      totalTransactions: nat;
+    }) query;
+  getUserMonthlySummary: (principal) ->
+   (record {
+      budgetStatus: vec record {
+                          Category;
+                          nat;
+                          int;
+                          float64;
+                        };
+      periodEnd: Time;
+      periodStart: Time;
+      topCategories: vec record {
+                           Category;
+                           int;
+                         };
+      topPaymentMethods: vec record {
+                               PaymentMethod;
+                               int;
+                             };
+      totalExpenses: int;
+      totalIncome: int;
+      totalTransactions: nat;
+    }) query;
+  getUserPaymentMethodSummary: (principal, opt Time, opt Time) ->
+   (vec PaymentMethodSummary) query;
+  getUserProfileByCaller: () -> (opt UserProfile) query;
+  getUserProfileByPrincipal: (principal) -> (opt UserProfile) query;
+  getUserSpendingTrends: (principal, nat, opt Category) ->
+   (vec SpendingTrend) query;
+  getUserTransactionsByCaller: () ->
+   (vec record {
+          TransactionId;
+          Transaction;
+        }) query;
+  getUserTransactionsByPrincipal: (principal) ->
+   (vec record {
+          TransactionId;
+          Transaction;
+        }) query;
   getUsers: () -> (vec User) query;
   manageCategory: (Category, CategoryAction) -> (CategoryResponse);
   revokeAccess: (principal) -> (RevokeAccessResponse);

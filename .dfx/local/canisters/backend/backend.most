@@ -10,6 +10,7 @@ type Invite =
     usedBy : ?Principal
   };
 type InviteToken = Text;
+type Map<K, V> = {root : Tree<K, V>; size : Nat};
 type NotificationSettings =
   {
     browserNotifications : Bool;
@@ -38,15 +39,10 @@ type Tree<K, V> =
     #leaf;
     #red : (Tree<K, V>, K, V, Tree<K, V>)
   };
-type User =
-  {joinedAt : Time; principal : Principal; role : Role; username : Text};
+type User = {joinedAt : Time; principal : Principal; role : Role};
 type UserProfile =
-  {
-    notificationsEnabled : Bool;
-    preferredCurrency : Text;
-    theme : Text;
-    username : Text
-  };
+  {notificationsEnabled : Bool; preferredCurrency : Text; theme : Text};
+type UserTransactions = Map<TransactionId, Transaction>;
 actor {
   stable var adminPrincipalOpt : ?Principal;
   stable var budgets : {root : Tree<Category, Budget>; size : Nat};
@@ -59,5 +55,7 @@ actor {
   stable var transactions :
     {root : Tree<TransactionId, Transaction>; size : Nat};
   stable var userProfiles : {root : Tree<Principal, UserProfile>; size : Nat};
+  stable var userTransactions :
+    {root : Tree<Principal, UserTransactions>; size : Nat};
   stable var users : {root : Tree<Principal, User>; size : Nat}
 };

@@ -1,7 +1,6 @@
 export const idlFactory = ({ IDL }) => {
   const InviteToken = IDL.Text;
   const InvitationResponse = IDL.Variant({
-    'shortUsername' : IDL.Null,
     'alreadyUsedToken' : IDL.Null,
     'expiredToken' : IDL.Null,
     'success' : IDL.Null,
@@ -66,16 +65,15 @@ export const idlFactory = ({ IDL }) => {
     'count' : IDL.Nat,
     'spent' : IDL.Int,
   });
+  const SpendingTrend = IDL.Record({ 'period' : IDL.Text, 'spent' : IDL.Int });
   const UserProfile = IDL.Record({
     'theme' : IDL.Text,
     'notificationsEnabled' : IDL.Bool,
-    'username' : IDL.Text,
     'preferredCurrency' : IDL.Text,
   });
   const Role = IDL.Variant({ 'Editor' : IDL.Null, 'Admin' : IDL.Null });
   const User = IDL.Record({
     'principal' : IDL.Principal,
-    'username' : IDL.Text,
     'joinedAt' : Time,
     'role' : Role,
   });
@@ -105,11 +103,7 @@ export const idlFactory = ({ IDL }) => {
     'categoryEmpty' : IDL.Null,
   });
   return IDL.Service({
-    'acceptInvite' : IDL.Func(
-        [InviteToken, IDL.Text],
-        [InvitationResponse],
-        [],
-      ),
+    'acceptInvite' : IDL.Func([InviteToken], [InvitationResponse], []),
     'addPaymentMethod' : IDL.Func([PaymentMethod], [PaymentMethodResponse], []),
     'addTransaction' : IDL.Func(
         [Time, IDL.Nat, Category, PaymentMethod, IDL.Opt(IDL.Text)],
@@ -139,10 +133,10 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(TransactionId, Transaction))],
         ['query'],
       ),
-    'getBudgetAlerts' : IDL.Func(
-        [],
+    'getBudgetAlertsForUser' : IDL.Func(
+        [IDL.Principal],
         [IDL.Vec(IDL.Tuple(Category, IDL.Int, IDL.Nat, IDL.Float64))],
-        [],
+        ['query'],
       ),
     'getBudgetSummary' : IDL.Func(
         [],
@@ -185,7 +179,12 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(TransactionId, Transaction))],
         ['query'],
       ),
-    'getNotificationSettings' : IDL.Func(
+    'getNotificationSettingsByPrincipal' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(NotificationSettings)],
+        ['query'],
+      ),
+    'getNotificationSettingsNyCaller' : IDL.Func(
         [],
         [IDL.Opt(NotificationSettings)],
         ['query'],
@@ -196,12 +195,83 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getPaymentMethods' : IDL.Func([], [IDL.Vec(PaymentMethod)], ['query']),
+    'getSpendingTrends' : IDL.Func(
+        [IDL.Nat, IDL.Opt(Category)],
+        [IDL.Vec(SpendingTrend)],
+        ['query'],
+      ),
     'getTransaction' : IDL.Func(
         [TransactionId],
         [IDL.Opt(Transaction)],
         ['query'],
       ),
-    'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getTransactionsByUser' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(IDL.Tuple(TransactionId, Transaction))],
+        [],
+      ),
+    'getUserCategorySummary' : IDL.Func(
+        [IDL.Principal, IDL.Opt(Time), IDL.Opt(Time)],
+        [IDL.Vec(CategorySummary)],
+        ['query'],
+      ),
+    'getUserDashboardSummary' : IDL.Func(
+        [IDL.Principal],
+        [
+          IDL.Record({
+            'totalIncome' : IDL.Int,
+            'totalExpenses' : IDL.Int,
+            'budgetStatus' : IDL.Vec(IDL.Tuple(Category, IDL.Float64)),
+            'categoriesCount' : IDL.Nat,
+            'totalTransactions' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'getUserMonthlySummary' : IDL.Func(
+        [IDL.Principal],
+        [
+          IDL.Record({
+            'totalIncome' : IDL.Int,
+            'topCategories' : IDL.Vec(IDL.Tuple(Category, IDL.Int)),
+            'topPaymentMethods' : IDL.Vec(IDL.Tuple(PaymentMethod, IDL.Int)),
+            'totalExpenses' : IDL.Int,
+            'periodEnd' : Time,
+            'budgetStatus' : IDL.Vec(
+              IDL.Tuple(Category, IDL.Nat, IDL.Int, IDL.Float64)
+            ),
+            'periodStart' : Time,
+            'totalTransactions' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'getUserPaymentMethodSummary' : IDL.Func(
+        [IDL.Principal, IDL.Opt(Time), IDL.Opt(Time)],
+        [IDL.Vec(PaymentMethodSummary)],
+        ['query'],
+      ),
+    'getUserProfileByCaller' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getUserProfileByPrincipal' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
+    'getUserSpendingTrends' : IDL.Func(
+        [IDL.Principal, IDL.Nat, IDL.Opt(Category)],
+        [IDL.Vec(SpendingTrend)],
+        ['query'],
+      ),
+    'getUserTransactionsByCaller' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(TransactionId, Transaction))],
+        ['query'],
+      ),
+    'getUserTransactionsByPrincipal' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(IDL.Tuple(TransactionId, Transaction))],
+        ['query'],
+      ),
     'getUsers' : IDL.Func([], [IDL.Vec(User)], ['query']),
     'manageCategory' : IDL.Func(
         [Category, CategoryAction],

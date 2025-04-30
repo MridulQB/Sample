@@ -18,7 +18,6 @@ persistent actor BudgetTracker {
     type Role = { #Admin; #Editor };
     type User = {
         principal : Principal;
-        username : Text;
         role : Role;
         joinedAt : Time.Time;
     };
@@ -74,7 +73,6 @@ persistent actor BudgetTracker {
     };
     type InvitationResponse = {
         #alreadyRegistered;
-        #shortUsername;
         #invalidToken;
         #alreadyUsedToken;
         #expiredToken;
@@ -105,7 +103,6 @@ persistent actor BudgetTracker {
         spent: Int;
     };
     type UserProfile = {
-        username: Text;
         preferredCurrency: Text;
         theme: Text;
         notificationsEnabled: Bool;
@@ -133,6 +130,9 @@ persistent actor BudgetTracker {
         #invalidMethod;
         #methodExists;
     };
+    
+    // User transaction type to store user's transactions
+    type UserTransactions = OrderedMap.Map<TransactionId, Transaction>;
 
     var nextTransactionId : TransactionId = 0;
     var adminPrincipalOpt : ?Principal = null;
@@ -141,6 +141,7 @@ persistent actor BudgetTracker {
     transient let transactionMap = OrderedMap.Make<TransactionId>(Nat.compare);
     transient let budgetMap = OrderedMap.Make<Category>(Text.compare);
     transient let inviteMap = OrderedMap.Make<InviteToken>(Text.compare);
+    transient let userTransactionMap = OrderedMap.Make<Principal>(Principal.compare);
     
     var users : OrderedMap.Map<Principal, User> = usersMap.empty<User>();
     var transactions : OrderedMap.Map<TransactionId, Transaction> = transactionMap.empty<Transaction>();
@@ -150,18 +151,21 @@ persistent actor BudgetTracker {
     var paymentMethods: OrderedMap.Map<PaymentMethod, Time.Time> = budgetMap.empty<Time.Time>();
     var userProfiles: OrderedMap.Map<Principal, UserProfile> = usersMap.empty<UserProfile>();
     var notificationSettings: OrderedMap.Map<Principal, NotificationSettings> = usersMap.empty<NotificationSettings>();
+    var userTransactions: OrderedMap.Map<Principal, UserTransactions> = userTransactionMap.empty<UserTransactions>();
     
     // Authorization helpers
     func initializeAdmin(principal : Principal) {
         if (adminPrincipalOpt == null and usersMap.size(users) == 0) {
             let newUser : User = {
                 principal = principal;
-                username = "admin";
                 role = #Admin;
                 joinedAt = Time.now();
             };
             users := usersMap.put(users, principal, newUser);
             adminPrincipalOpt := ?principal;
+            
+            // Initialize admin's transaction store
+            userTransactions := userTransactionMap.put(userTransactions, principal, transactionMap.empty<Transaction>());
         };
     };
 
@@ -177,7 +181,7 @@ persistent actor BudgetTracker {
         };
     };
 
-    func canEditTransaction(caller: Principal, txId: TransactionId): Bool {
+    func _canEditTransaction(caller: Principal, txId: TransactionId): Bool {
         switch (transactionMap.get(transactions, txId)) {
             case (?tx) {
                 if (isAdmin(caller)) { return true; };
@@ -213,6 +217,41 @@ persistent actor BudgetTracker {
     // Transaction Management
     public query func getTransaction(id : TransactionId) : async ?Transaction {
         transactionMap.get(transactions, id);
+    };
+
+    // Get user's transactions
+    public query ({ caller }) func getUserTransactionsByCaller() : async [(TransactionId, Transaction)] {
+        if (not isAuthorized(caller)) throw Error.reject("Access Denied: Not authorized");
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, caller) else {
+            return [];
+        };
+        
+        var result : [(TransactionId, Transaction)] = Iter.toArray(transactionMap.entries(userTxMap));
+        result := Array.sort<(TransactionId, Transaction)>(
+            result,
+            func((_, aTx), (_, bTx)) {
+                if (aTx.date > bTx.date) return #less else if (aTx.date < bTx.date) return #greater else return #equal;
+            },
+        );
+        result;
+    };
+
+    public query func getUserTransactionsByPrincipal(userPrincipal : Principal) : async [(TransactionId, Transaction)] {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
+        var result : [(TransactionId, Transaction)] = Iter.toArray(transactionMap.entries(userTxMap));
+        result := Array.sort<(TransactionId, Transaction)>(
+            result,
+            func((_, aTx), (_, bTx)) {
+                if (aTx.date > bTx.date) return #less else if (aTx.date < bTx.date) return #greater else return #equal;
+            },
+        );
+        result;
     };
 
     public query func getAllTransactions() : async [(TransactionId, Transaction)] {
@@ -275,7 +314,7 @@ persistent actor BudgetTracker {
         paymentMethod : PaymentMethod,
         notes : ?Text,
     ) : async AddTransactionResponse {
-        // if (not isAuthorized(caller)) throw Error.reject("Access Denied: Not authorized");
+        if (not isAuthorized(caller)) throw Error.reject("Access Denied: Not authorized");
         
         let now = Time.now();
         let newId = nextTransactionId;
@@ -292,7 +331,18 @@ persistent actor BudgetTracker {
             createdAt = now;
             updatedAt = now;
         };
+        
+        // Add to global transactions
         transactions := transactionMap.put(transactions, newId, newTransaction);
+        
+        // Add to user's transactions
+        var userTxMap = switch (userTransactionMap.get(userTransactions, caller)) {
+            case (?existingMap) { existingMap };
+            case null { transactionMap.empty<Transaction>() };
+        };
+        userTxMap := transactionMap.put(userTxMap, newId, newTransaction);
+        userTransactions := userTransactionMap.put(userTransactions, caller, userTxMap);
+        
         nextTransactionId += 1;
         
         // Add category and payment method if they don't exist
@@ -314,7 +364,7 @@ persistent actor BudgetTracker {
         paymentMethod : PaymentMethod,
         notes : ?Text,
     ) : async UpdateTransactionResponse {
-        if (not canEditTransaction(caller, id)) throw Error.reject("Access Denied: Cannot edit this transaction.");
+        if(not isAdmin(caller)) throw Error.reject("Access Denied: Cannot edit this transaction.");
         
         let now = Time.now();
         if (Text.size(category) == 0) return #categoryEmpty;
@@ -332,7 +382,24 @@ persistent actor BudgetTracker {
             notes = notes;
             updatedAt = now;
         };
+        
+        // Update in global transactions
         transactions := transactionMap.put(transactions, id, updatedTransaction);
+        
+        // Update in owner's transactions
+        let ownerPrincipal = oldTransaction.owner;
+        switch (userTransactionMap.get(userTransactions, ownerPrincipal)) {
+            case (?userTxMap) {
+                let updatedUserTxMap = transactionMap.put(userTxMap, id, updatedTransaction);
+                userTransactions := userTransactionMap.put(userTransactions, ownerPrincipal, updatedUserTxMap);
+            };
+            case null {
+                // If owner's transaction map doesn't exist (shouldn't happen), create it
+                var newUserTxMap = transactionMap.empty<Transaction>();
+                newUserTxMap := transactionMap.put(newUserTxMap, id, updatedTransaction);
+                userTransactions := userTransactionMap.put(userTransactions, ownerPrincipal, newUserTxMap);
+            };
+        };
         
         // Add category and payment method if they don't exist
         if (budgetMap.get(categories, category) == null) {
@@ -346,10 +413,23 @@ persistent actor BudgetTracker {
     };
 
     public shared({ caller }) func deleteTransaction(id : TransactionId) : async DeleteTransactionResponse {
-        if (not canEditTransaction(caller, id)) throw Error.reject("Access Denied: Cannot delete this transaction.");
+        if(not isAdmin(caller)) throw Error.reject("Access Denied: Cannot delete this transaction.");
         
-        let ?_tx = transactionMap.get(transactions, id) else return #invalidTxn;
+        let ?tx = transactionMap.get(transactions, id) else return #invalidTxn;
+        
+        // Remove from global transactions
         transactions := transactionMap.delete(transactions, id);
+        
+        // Remove from owner's transactions
+        let ownerPrincipal = tx.owner;
+        switch (userTransactionMap.get(userTransactions, ownerPrincipal)) {
+            case (?userTxMap) {
+                let updatedUserTxMap = transactionMap.delete(userTxMap, id);
+                userTransactions := userTransactionMap.put(userTransactions, ownerPrincipal, updatedUserTxMap);
+            };
+            case null { /* No user transactions map, nothing to delete */ };
+        };
+        
         #success;
     };
 
@@ -426,12 +506,6 @@ persistent actor BudgetTracker {
         for ((_, user) in usersMap.entries(users)) {
             result := Array.append([user], result);
         };
-        result := Array.sort<User>(
-            result,
-            func(userA, userB) {
-                Text.compare(userA.username, userB.username);
-            },
-        );
         result;
     };
 
@@ -464,10 +538,9 @@ persistent actor BudgetTracker {
         #success;
     };
 
-    public shared ({ caller }) func acceptInvite(token : InviteToken, username : Text) : async InvitationResponse {
+    public shared ({ caller }) func acceptInvite(token : InviteToken) : async InvitationResponse {
         let now = Time.now();
         if (usersMap.get(users, caller) != null) return #alreadyRegistered;
-        if (Text.size(username) < 3) return #shortUsername;
         let ?invite = inviteMap.get(invites, token) else return #invalidToken;
         if (invite.usedBy != null) return #alreadyUsedToken;
         if (now > invite.expiresAt) {
@@ -484,14 +557,15 @@ persistent actor BudgetTracker {
         invites := inviteMap.put(invites, token, updatedInvite);
         let newUser : User = {
             principal = caller;
-            username = username;
             role = #Editor;
             joinedAt = now;
         };
         users := usersMap.put(users, caller, newUser);
         
+        // Initialize user's transaction store
+        userTransactions := userTransactionMap.put(userTransactions, caller, transactionMap.empty<Transaction>());
+        
         let defaultProfile : UserProfile = {
-            username = username;
             preferredCurrency = "USD";
             theme = "light";
             notificationsEnabled = true;
@@ -514,8 +588,14 @@ persistent actor BudgetTracker {
         
         if (userPrincipal == caller) return #unauthorizedActivity;
         if (usersMap.get(users, userPrincipal) == null) return #invalidUser;
+        
+        // Remove user
         users := usersMap.delete(users, userPrincipal);
         
+        // Clean up user's transaction map
+        userTransactions := userTransactionMap.delete(userTransactions, userPrincipal);
+        
+        // Clean up user profile and settings
         userProfiles := usersMap.delete(userProfiles, userPrincipal);
         notificationSettings := usersMap.delete(notificationSettings, userPrincipal);
         
@@ -530,8 +610,12 @@ persistent actor BudgetTracker {
         #success;
     };
 
-    public query({ caller }) func getUserProfile(): async ?UserProfile {
+    public query({ caller }) func getUserProfileByCaller(): async ?UserProfile {
         usersMap.get(userProfiles, caller);
+    };
+
+    public query func getUserProfileByPrincipal(userPrincipal : Principal): async ?UserProfile {
+        usersMap.get(userProfiles,userPrincipal);
     };
 
     // Budget Notification Settings
@@ -542,8 +626,12 @@ persistent actor BudgetTracker {
         #success;
     };
 
-    public query({ caller }) func getNotificationSettings(): async ?NotificationSettings {
+    public query({ caller }) func getNotificationSettingsNyCaller(): async ?NotificationSettings {
         usersMap.get(notificationSettings, caller);
+    };
+
+    public query func getNotificationSettingsByPrincipal(userPrincipal : Principal): async ?NotificationSettings {
+        usersMap.get(notificationSettings, userPrincipal);
     };
 
     // Check budget status for notifications
@@ -560,8 +648,6 @@ persistent actor BudgetTracker {
         );
         result;
     };
-
-
 
     // Category Management
     public shared({ caller }) func manageCategory(category: Category, action: CategoryAction): async CategoryResponse {
@@ -627,6 +713,24 @@ persistent actor BudgetTracker {
         result;
     };
 
+    // Get transactions for a specific user (admin function)
+    public shared({ caller }) func getTransactionsByUser(userPrincipal: Principal): async [(TransactionId, Transaction)] {
+        if (not isAdmin(caller)) throw Error.reject("Access Denied: Admin role required.");
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
+        var result : [(TransactionId, Transaction)] = Iter.toArray(transactionMap.entries(userTxMap));
+        result := Array.sort<(TransactionId, Transaction)>(
+            result,
+            func((_, aTx), (_, bTx)) {
+                if (aTx.date > bTx.date) return #less else if (aTx.date < bTx.date) return #greater else return #equal;
+            },
+        );
+        result;
+    };
+
     // Analytics endpoints for visualization
     public query func getCategorySummary(
         startDate: ?Time.Time,
@@ -676,6 +780,61 @@ persistent actor BudgetTracker {
         result;
     };
 
+    public query func getUserCategorySummary(
+        userPrincipal : Principal,
+        startDate: ?Time.Time,
+        endDate: ?Time.Time
+    ): async [CategorySummary] {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let now = Time.now();
+        let startTime = Option.get(startDate, now - 30 * 24 * 60 * 60 * 1_000_000_000); // Default 30 days
+        let endTime = Option.get(endDate, now);
+        
+        var categorySpending = Map.HashMap<Category, Int>(0, Text.equal, Text.hash);
+        
+        // Get user's transactions and calculate spending by category
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
+        for ((_, tx) in transactionMap.entries(userTxMap)) {
+            if (tx.date >= startTime and tx.date <= endTime) {
+                let currentSpent = Option.get(categorySpending.get(tx.category), 0);
+                categorySpending.put(tx.category, currentSpent + tx.amount);
+            };
+        };
+        
+        var result: [CategorySummary] = [];
+        for ((cat, budget) in budgetMap.entries(budgets)) {
+            let spent = Option.get(categorySpending.get(cat), 0);
+            let percentage = if (budget.amount == 0) 0.0 else Float.fromInt(Int.abs(spent)) / Float.fromInt(budget.amount) * 100.0;
+            
+            let summary: CategorySummary = {
+                category = cat;
+                spent = spent;
+                budget = ?budget.amount;
+                percentage = percentage;
+            };
+            result := Array.append([summary], result);
+        };
+        
+        // Add categories without budgets
+        for ((cat, spent) in categorySpending.entries()) {
+            if (budgetMap.get(budgets, cat) == null) {
+                let summary: CategorySummary = {
+                    category = cat;
+                    spent = spent;
+                    budget = null;
+                    percentage = 0.0;
+                };
+                result := Array.append([summary], result);
+            };
+        };
+        
+        result;
+    };
+
     public query func getPaymentMethodSummary(
         startDate: ?Time.Time,
         endDate: ?Time.Time
@@ -684,17 +843,25 @@ persistent actor BudgetTracker {
         let startTime = Option.get(startDate, now - 30 * 24 * 60 * 60 * 1_000_000_000); // Default 30 days
         let endTime = Option.get(endDate, now);
         
-        var methodSpending = Map.HashMap<PaymentMethod, (Int, Nat)>(0, Text.equal, Text.hash);
+        var methodSpending = Map.HashMap<PaymentMethod, Int>(0, Text.equal, Text.hash);
+        var methodCount = Map.HashMap<PaymentMethod, Nat>(0, Text.equal, Text.hash);
         
+        // Calculate spending by payment method
         for ((_, tx) in transactionMap.entries(transactions)) {
             if (tx.date >= startTime and tx.date <= endTime) {
-                let (currentSpent, currentCount) = Option.get(methodSpending.get(tx.paymentMethod), (0, 0));
-                methodSpending.put(tx.paymentMethod, (currentSpent + tx.amount, currentCount + 1));
+                let currentSpent = Option.get(methodSpending.get(tx.paymentMethod), 0);
+                methodSpending.put(tx.paymentMethod, currentSpent + tx.amount);
+                
+                let currentCount = Option.get(methodCount.get(tx.paymentMethod), 0);
+                methodCount.put(tx.paymentMethod, currentCount + 1);
             };
         };
         
         var result: [PaymentMethodSummary] = [];
-        for ((method, (spent, count)) in methodSpending.entries()) {
+        for ((method, _) in budgetMap.entries(paymentMethods)) {
+            let spent = Option.get(methodSpending.get(method), 0);
+            let count = Option.get(methodCount.get(method), 0);
+            
             let summary: PaymentMethodSummary = {
                 method = method;
                 spent = spent;
@@ -705,14 +872,359 @@ persistent actor BudgetTracker {
         
         result;
     };
-    
-    // Additional analytics endpoint for dashboard
-    public query func getDashboardSummary(): async {
+
+    public query func getUserPaymentMethodSummary(
+        userPrincipal : Principal,
+        startDate: ?Time.Time,
+        endDate: ?Time.Time
+    ): async [PaymentMethodSummary] {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let now = Time.now();
+        let startTime = Option.get(startDate, now - 30 * 24 * 60 * 60 * 1_000_000_000); // Default 30 days
+        let endTime = Option.get(endDate, now);
+        
+        var methodSpending = Map.HashMap<PaymentMethod, Int>(0, Text.equal, Text.hash);
+        var methodCount = Map.HashMap<PaymentMethod, Nat>(0, Text.equal, Text.hash);
+        
+        // Get user's transactions and calculate spending by payment method
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
+        for ((_, tx) in transactionMap.entries(userTxMap)) {
+            if (tx.date >= startTime and tx.date <= endTime) {
+                let currentSpent = Option.get(methodSpending.get(tx.paymentMethod), 0);
+                methodSpending.put(tx.paymentMethod, currentSpent + tx.amount);
+                
+                let currentCount = Option.get(methodCount.get(tx.paymentMethod), 0);
+                methodCount.put(tx.paymentMethod, currentCount + 1);
+            };
+        };
+        
+        var result: [PaymentMethodSummary] = [];
+        for ((method, _) in budgetMap.entries(paymentMethods)) {
+            let spent = Option.get(methodSpending.get(method), 0);
+            let count = Option.get(methodCount.get(method), 0);
+            
+            let summary: PaymentMethodSummary = {
+                method = method;
+                spent = spent;
+                count = count;
+            };
+            result := Array.append([summary], result);
+        };
+        
+        result;
+    };
+
+    public query func getSpendingTrends(
+        months: Nat,
+        category: ?Category
+    ): async [SpendingTrend] {
+        let now = Time.now();
+        let monthInNanos = 30 * 24 * 60 * 60 * 1_000_000_000;
+        
+        var result: [SpendingTrend] = [];
+        var currentMonth = now;
+        
+        for (i in Iter.range(0, months - 1)) {
+            let monthStart = currentMonth - monthInNanos;
+            
+            // Format period as YYYY-MM
+            let timestamp = Int.abs(currentMonth) / 1_000_000_000; // Convert to seconds
+            let date = {
+                year = 1970 + Int.abs(timestamp) / (365 * 24 * 60 * 60);
+                month = (Int.abs(timestamp) / (30 * 24 * 60 * 60)) % 12 + 1;
+            };
+            let period = Nat.toText(date.year) # "-" # 
+                (if (date.month < 10) "0" # Nat.toText(date.month) else Nat.toText(date.month));
+            
+            var totalSpent: Int = 0;
+            
+            for ((_, tx) in transactionMap.entries(transactions)) {
+                if (tx.date >= monthStart and tx.date < currentMonth) {
+                    switch (category) {
+                        case (?cat) {
+                            if (tx.category == cat) {
+                                totalSpent += tx.amount;
+                            };
+                        };
+                        case null {
+                            totalSpent += tx.amount;
+                        };
+                    };
+                };
+            };
+            
+            let trend: SpendingTrend = {
+                period = period;
+                spent = totalSpent;
+            };
+            
+            result := Array.append([trend], result);
+            currentMonth := monthStart;
+        };
+        
+        result;
+    };
+
+    public query func getUserSpendingTrends(
+        userPrincipal : Principal,
+        months: Nat,
+        category: ?Category
+    ): async [SpendingTrend] {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let now = Time.now();
+        let monthInNanos = 30 * 24 * 60 * 60 * 1_000_000_000;
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
+        var result: [SpendingTrend] = [];
+        var currentMonth = now;
+        
+        for (i in Iter.range(0, months - 1)) {
+            let monthStart = currentMonth - monthInNanos;
+            
+            // Format period as YYYY-MM
+            let timestamp = Int.abs(currentMonth) / 1_000_000_000; // Convert to seconds
+            let date = {
+                year = 1970 + Int.abs(timestamp) / (365 * 24 * 60 * 60);
+                month = (Int.abs(timestamp) / (30 * 24 * 60 * 60)) % 12 + 1;
+            };
+            let period = Nat.toText(date.year) # "-" # 
+                (if (date.month < 10) "0" # Nat.toText(date.month) else Nat.toText(date.month));
+            
+            var totalSpent: Int = 0;
+            
+            for ((_, tx) in transactionMap.entries(userTxMap)) {
+                if (tx.date >= monthStart and tx.date < currentMonth) {
+                    switch (category) {
+                        case (?cat) {
+                            if (tx.category == cat) {
+                                totalSpent += tx.amount;
+                            };
+                        };
+                        case null {
+                            totalSpent += tx.amount;
+                        };
+                    };
+                };
+            };
+            
+            let trend: SpendingTrend = {
+                period = period;
+                spent = totalSpent;
+            };
+            
+            result := Array.append([trend], result);
+            currentMonth := monthStart;
+        };
+        
+        result;
+    };
+
+
+    // User-specific monthly summary - provides insights for transactions in the last month
+    public query func getUserMonthlySummary(userPrincipal : Principal): async {
+        periodStart: Time.Time;
+        periodEnd: Time.Time;
+        totalTransactions: Nat;
+        totalExpenses: Int;
+        totalIncome: Int;
+        topCategories: [(Category, Int)]; // Category and amount spent
+        topPaymentMethods: [(PaymentMethod, Int)]; // Payment method and amount
+        budgetStatus: [(Category, Nat, Int, Float)]; // Category, budget, spent, percentage
+    } {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let now = Time.now();
+        let monthStart = now - 30 * 24 * 60 * 60 * 1_000_000_000; // Last 30 days
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return {
+                periodStart = monthStart;
+                periodEnd = now;
+                totalTransactions = 0;
+                totalExpenses = 0;
+                totalIncome = 0;
+                topCategories = [];
+                topPaymentMethods = [];
+                budgetStatus = [];
+            };
+        };
+        
+        var txCount = 0;
+        var expenses = 0;
+        var income = 0;
+        
+        var categorySpending = Map.HashMap<Category, Int>(0, Text.equal, Text.hash);
+        var paymentMethodSpending = Map.HashMap<PaymentMethod, Int>(0, Text.equal, Text.hash);
+        
+        // Process transactions
+        for ((_, tx) in transactionMap.entries(userTxMap)) {
+            if (tx.date >= monthStart) {
+                txCount += 1;
+                
+                // Track income vs expenses
+                if (tx.amount < 0) {
+                    expenses += tx.amount;
+                } else {
+                    income += tx.amount;
+                };
+                
+                // Track by category
+                let currentCatSpent = Option.get(categorySpending.get(tx.category), 0);
+                categorySpending.put(tx.category, currentCatSpent + tx.amount);
+                
+                // Track by payment method
+                let currentMethodSpent = Option.get(paymentMethodSpending.get(tx.paymentMethod), 0);
+                paymentMethodSpending.put(tx.paymentMethod, currentMethodSpent + tx.amount);
+            };
+        };
+        
+        // Convert to arrays and sort
+        var catArray: [(Category, Int)] = [];
+        for ((cat, amount) in categorySpending.entries()) {
+            catArray := Array.append([(cat, amount)], catArray);
+        };
+        catArray := Array.sort<(Category, Int)>(
+            catArray,
+            func((_, a), (_, b)) {
+                if (Int.abs(a) > Int.abs(b)) return #less 
+                else if (Int.abs(a) < Int.abs(b)) return #greater 
+                else return #equal;
+            }
+        );
+        // Take top 5 categories
+        let topCats = if (Array.size(catArray) > 5) Array.subArray(catArray, 0, 5) else catArray;
+        
+        var methodArray: [(PaymentMethod, Int)] = [];
+        for ((method, amount) in paymentMethodSpending.entries()) {
+            methodArray := Array.append([(method, amount)], methodArray);
+        };
+        // Sort payment methods by spending
+        methodArray := Array.sort<(PaymentMethod, Int)>(
+            methodArray,
+            func((_, a), (_, b)) {
+                if (Int.abs(a) > Int.abs(b)) return #less 
+                else if (Int.abs(a) < Int.abs(b)) return #greater 
+                else return #equal;
+            }
+        );
+        // Take top 3 payment methods
+        let topMethods = if (Array.size(methodArray) > 3) Array.subArray(methodArray, 0, 3) else methodArray;
+        
+        // Calculate budget status
+        var budgetStatusArray: [(Category, Nat, Int, Float)] = [];
+        for ((cat, budget) in budgetMap.entries(budgets)) {
+            let spent = Option.get(categorySpending.get(cat), 0);
+            let percentage = if (budget.amount == 0) 0.0 
+                            else Float.fromInt(Int.abs(spent)) / Float.fromInt(budget.amount) * 100.0;
+            
+            budgetStatusArray := Array.append([(cat, budget.amount, spent, percentage)], budgetStatusArray);
+        };
+        // Sort by percentage
+        budgetStatusArray := Array.sort<(Category, Nat, Int, Float)>(
+            budgetStatusArray,
+            func((_, _, _, a), (_, _, _, b)) {
+                if (a > b) return #less else if (a < b) return #greater else return #equal;
+            }
+        );
+        
+        return {
+            periodStart = monthStart;
+            periodEnd = now;
+            totalTransactions = txCount;
+            totalExpenses = expenses;
+            totalIncome = income;
+            topCategories = topCats;
+            topPaymentMethods = topMethods;
+            budgetStatus = budgetStatusArray;
+        };
+    };
+
+    // User-specific dashboard summary
+    public query func getUserDashboardSummary(userPrincipal : Principal): async {
         totalTransactions: Nat;
         totalExpenses: Int;
         totalIncome: Int;
         categoriesCount: Nat;
         budgetStatus: [(Category, Float)]; // Category and percentage used
+    } {
+        if (not isAuthorized(userPrincipal)) throw Error.reject("Access Denied: Not authorized");
+        
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return {
+                totalTransactions = 0;
+                totalExpenses = 0;
+                totalIncome = 0;
+                categoriesCount = 0;
+                budgetStatus = [];
+            };
+        };
+        
+        var totalTxCount = 0;
+        var expenses = 0;
+        var income = 0;
+        var userCategories = Map.HashMap<Category, Bool>(0, Text.equal, Text.hash);
+        
+        // Calculate totals and track used categories
+        for ((_, tx) in transactionMap.entries(userTxMap)) {
+            totalTxCount += 1;
+            if (tx.amount < 0) {
+                expenses += tx.amount;
+            } else {
+                income += tx.amount;
+            };
+            userCategories.put(tx.category, true);
+        };
+        
+        // Calculate budget usage percentages for categories the user has used
+        var categoryUsage: [(Category, Float)] = [];
+        for ((cat, budget) in budgetMap.entries(budgets)) {
+            if (userCategories.get(cat) != null) {
+                var spent = 0;
+                for ((_, tx) in transactionMap.entries(userTxMap)) {
+                    if (tx.category == cat) {
+                        spent += tx.amount;
+                    };
+                };
+                
+                let percentage = if (budget.amount == 0) 0.0 
+                                else Float.fromInt(Int.abs(spent)) / Float.fromInt(budget.amount) * 100.0;
+                
+                categoryUsage := Array.append([(cat, percentage)], categoryUsage);
+            };
+        };
+        
+        // Sort by highest percentage first
+        categoryUsage := Array.sort<(Category, Float)>(
+            categoryUsage,
+            func((_, a), (_, b)) {
+                if (a > b) return #less else if (a < b) return #greater else return #equal;
+            }
+        );
+        
+        return {
+            totalTransactions = totalTxCount;
+            totalExpenses = expenses;
+            totalIncome = income;
+            categoriesCount = userCategories.size();
+            budgetStatus = categoryUsage;
+        };
+    };
+
+    // Dashboard Summary function
+    public query func getDashboardSummary(): async {
+        totalTransactions: Nat;
+        totalExpenses: Int;
+        totalIncome: Int;
+        categoriesCount: Nat;
+        budgetStatus: [(Category, Float)];
     } {
         var totalTxCount = 0;
         var expenses = 0;
@@ -727,12 +1239,11 @@ persistent actor BudgetTracker {
             };
         };
         
-        // Calculate budget usage percentages
         var categoryUsage: [(Category, Float)] = [];
         for ((cat, budget) in budgetMap.entries(budgets)) {
             var spent = 0;
             for ((_, tx) in transactionMap.entries(transactions)) {
-                if (tx.category == cat and tx.amount < 0) {
+                if (tx.category == cat) {
                     spent += tx.amount;
                 };
             };
@@ -743,11 +1254,10 @@ persistent actor BudgetTracker {
             categoryUsage := Array.append([(cat, percentage)], categoryUsage);
         };
         
-        // Sort by highest percentage first
         categoryUsage := Array.sort<(Category, Float)>(
             categoryUsage,
             func((_, a), (_, b)) {
-                if (a > b) #less else if (a < b) #greater else #equal
+                if (a > b) return #less else if (a < b) return #greater else return #equal;
             }
         );
         
@@ -759,12 +1269,12 @@ persistent actor BudgetTracker {
             budgetStatus = categoryUsage;
         };
     };
-
-    // Notification system to check budget thresholds
-    public shared({ caller }) func getBudgetAlerts(): async [(Category, Int, Nat, Float)] {
+    
+    // Budget Alerts for users
+    public shared query ({caller}) func getBudgetAlertsForUser(userPrincipal: Principal): async [(Category, Int, Nat, Float)] {
         if (not isAuthorized(caller)) throw Error.reject("Access Denied: Not authorized");
         
-        let ?settings = usersMap.get(notificationSettings, caller) else {
+        let ?settings = usersMap.get(notificationSettings, userPrincipal) else {
             return [];
         };
         
@@ -774,10 +1284,15 @@ persistent actor BudgetTracker {
         
         var alerts: [(Category, Int, Nat, Float)] = []; // Category, spent, budget, percentage
         
+        // Get user's transactions
+        let ?userTxMap = userTransactionMap.get(userTransactions, userPrincipal) else {
+            return [];
+        };
+        
         // Calculate current month's spending by category
         var categorySpending = Map.HashMap<Category, Int>(0, Text.equal, Text.hash);
-        for ((_, tx) in transactionMap.entries(transactions)) {
-            if (tx.date >= monthStart and tx.amount < 0) {
+        for ((_, tx) in transactionMap.entries(userTxMap)) {
+            if (tx.date >= monthStart) {
                 let currentSpent = Option.get(categorySpending.get(tx.category), 0);
                 categorySpending.put(tx.category, currentSpent + tx.amount);
             };
@@ -795,7 +1310,14 @@ persistent actor BudgetTracker {
             };
         };
         
+        // Sort by percentage (highest first)
+        alerts := Array.sort<(Category, Int, Nat, Float)>(
+            alerts,
+            func((_, _, _, a), (_, _, _, b)) {
+                if (a > b) return #less else if (a < b) return #greater else return #equal;
+            }
+        );
+        
         alerts;
     };
-
 }

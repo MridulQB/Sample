@@ -28,8 +28,7 @@ export type DeleteTransactionResponse = { 'invalidTxn' : null } |
   { 'success' : null };
 export type GenerateInviteLinkResponse = { 'success' : null } |
   { 'failed' : null };
-export type InvitationResponse = { 'shortUsername' : null } |
-  { 'alreadyUsedToken' : null } |
+export type InvitationResponse = { 'alreadyUsedToken' : null } |
   { 'expiredToken' : null } |
   { 'success' : null } |
   { 'invalidToken' : null } |
@@ -56,6 +55,7 @@ export type Role = { 'Editor' : null } |
   { 'Admin' : null };
 export type SetBudgetResponse = { 'success' : null } |
   { 'categoryEmpty' : null };
+export interface SpendingTrend { 'period' : string, 'spent' : bigint }
 export type Time = bigint;
 export interface Transaction {
   'id' : TransactionId,
@@ -77,18 +77,16 @@ export type UpdateTransactionResponse = { 'paymentMethodEmpty' : null } |
   { 'categoryEmpty' : null };
 export interface User {
   'principal' : Principal,
-  'username' : string,
   'joinedAt' : Time,
   'role' : Role,
 }
 export interface UserProfile {
   'theme' : string,
   'notificationsEnabled' : boolean,
-  'username' : string,
   'preferredCurrency' : string,
 }
 export interface _SERVICE {
-  'acceptInvite' : ActorMethod<[InviteToken, string], InvitationResponse>,
+  'acceptInvite' : ActorMethod<[InviteToken], InvitationResponse>,
   'addPaymentMethod' : ActorMethod<[PaymentMethod], PaymentMethodResponse>,
   'addTransaction' : ActorMethod<
     [Time, bigint, Category, PaymentMethod, [] | [string]],
@@ -104,8 +102,8 @@ export interface _SERVICE {
   'deleteTransaction' : ActorMethod<[TransactionId], DeleteTransactionResponse>,
   'generateInviteLink' : ActorMethod<[], GenerateInviteLinkResponse>,
   'getAllTransactions' : ActorMethod<[], Array<[TransactionId, Transaction]>>,
-  'getBudgetAlerts' : ActorMethod<
-    [],
+  'getBudgetAlertsForUser' : ActorMethod<
+    [Principal],
     Array<[Category, bigint, bigint, number]>
   >,
   'getBudgetSummary' : ActorMethod<
@@ -139,14 +137,73 @@ export interface _SERVICE {
     ],
     Array<[TransactionId, Transaction]>
   >,
-  'getNotificationSettings' : ActorMethod<[], [] | [NotificationSettings]>,
+  'getNotificationSettingsByPrincipal' : ActorMethod<
+    [Principal],
+    [] | [NotificationSettings]
+  >,
+  'getNotificationSettingsNyCaller' : ActorMethod<
+    [],
+    [] | [NotificationSettings]
+  >,
   'getPaymentMethodSummary' : ActorMethod<
     [[] | [Time], [] | [Time]],
     Array<PaymentMethodSummary>
   >,
   'getPaymentMethods' : ActorMethod<[], Array<PaymentMethod>>,
+  'getSpendingTrends' : ActorMethod<
+    [bigint, [] | [Category]],
+    Array<SpendingTrend>
+  >,
   'getTransaction' : ActorMethod<[TransactionId], [] | [Transaction]>,
-  'getUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getTransactionsByUser' : ActorMethod<
+    [Principal],
+    Array<[TransactionId, Transaction]>
+  >,
+  'getUserCategorySummary' : ActorMethod<
+    [Principal, [] | [Time], [] | [Time]],
+    Array<CategorySummary>
+  >,
+  'getUserDashboardSummary' : ActorMethod<
+    [Principal],
+    {
+      'totalIncome' : bigint,
+      'totalExpenses' : bigint,
+      'budgetStatus' : Array<[Category, number]>,
+      'categoriesCount' : bigint,
+      'totalTransactions' : bigint,
+    }
+  >,
+  'getUserMonthlySummary' : ActorMethod<
+    [Principal],
+    {
+      'totalIncome' : bigint,
+      'topCategories' : Array<[Category, bigint]>,
+      'topPaymentMethods' : Array<[PaymentMethod, bigint]>,
+      'totalExpenses' : bigint,
+      'periodEnd' : Time,
+      'budgetStatus' : Array<[Category, bigint, bigint, number]>,
+      'periodStart' : Time,
+      'totalTransactions' : bigint,
+    }
+  >,
+  'getUserPaymentMethodSummary' : ActorMethod<
+    [Principal, [] | [Time], [] | [Time]],
+    Array<PaymentMethodSummary>
+  >,
+  'getUserProfileByCaller' : ActorMethod<[], [] | [UserProfile]>,
+  'getUserProfileByPrincipal' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getUserSpendingTrends' : ActorMethod<
+    [Principal, bigint, [] | [Category]],
+    Array<SpendingTrend>
+  >,
+  'getUserTransactionsByCaller' : ActorMethod<
+    [],
+    Array<[TransactionId, Transaction]>
+  >,
+  'getUserTransactionsByPrincipal' : ActorMethod<
+    [Principal],
+    Array<[TransactionId, Transaction]>
+  >,
   'getUsers' : ActorMethod<[], Array<User>>,
   'manageCategory' : ActorMethod<[Category, CategoryAction], CategoryResponse>,
   'revokeAccess' : ActorMethod<[Principal], RevokeAccessResponse>,
