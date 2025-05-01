@@ -625,12 +625,12 @@ async function getFilterTransactions(filters: {
   paymentMethod?: string;
 } = {}) {
   const tbody = document.getElementById("FitertransactionBody")
-  const toNullable = <T>(val?: T): [T] | [] => (val !== undefined ? [val] : []);
+  const toNullable = <T>(val?: T): [T] | [] => (val != undefined ? [val] : []);
 
   const startDate = toNullable(filters.startDate ? BigInt(new Date(filters.startDate).getTime() * 1_000_000) : undefined);
   const endDate = toNullable(filters.endDate ? BigInt(new Date(filters.endDate).getTime() * 1_000_000) : undefined);
-  const minAmount = toNullable(filters.minAmount !== undefined ? BigInt(filters.minAmount) : undefined);
-  const maxAmount = toNullable(filters.maxAmount !== undefined ? BigInt(filters.maxAmount) : undefined);
+  const minAmount = toNullable(filters.minAmount != undefined ? BigInt(filters.minAmount) : undefined);
+  const maxAmount = toNullable(filters.maxAmount != undefined ? BigInt(filters.maxAmount) : undefined);
   const category = filters.category ? [filters.category.trim()] : [];
   const paymentMethodOpt = filters.paymentMethod ? [filters.paymentMethod.trim()] : [];
   tbody.innerHTML = ""
