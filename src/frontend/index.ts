@@ -363,7 +363,7 @@ function setupTransactionModal() {
       const notes: any = notesInput.value.trim() ? [notesInput.value] : null;
 
       try {
-        if (id != null || id != undefined || id) {
+        if (id != null || id != undefined) {
           const adminResult = await backendActor.assertAdmin();
           const result: any = await backendActor.updateTransaction(
             id,
@@ -433,7 +433,7 @@ function setupTransactionModal() {
         modal.classList.add("visible");
       }, 10);
       // If editing an existing transaction, populate the form with existing data
-      if (id != null || id != undefined || id) {
+      if (id != null || id != undefined) {
         idInput.value = id.toString();
         dateInput.value = new Date(Number(date) / 1000000).toISOString().split("T")[0];
         amountInput.value = (Number(amount) / 100).toString();
